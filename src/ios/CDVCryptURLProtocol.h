@@ -6,6 +6,8 @@
 //
 //
 
+#import <Foundation/Foundation.h>
+
 #if __has_include(<Cordova/CDVURLProtocol.h>)
 #import <Cordova/CDVURLProtocol.h>
 #define HASCDVUrlProtocol
