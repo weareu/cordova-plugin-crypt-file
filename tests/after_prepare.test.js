@@ -249,3 +249,53 @@ test('android: output is byte-identical to the hook before the electron change',
     assert.notStrictEqual(snapshotBefore[before.www + '/js/app.js'], Buffer.from('var a = 1;').toString('base64'));
     assert.deepStrictEqual(snapshot(after.root), snapshotBefore);
 });
+
+function logsOfHook(context) {
+    var lines = [];
+    var streams = ['log', 'info', 'warn', 'error', 'debug'];
+    var saved = streams.map(function(name) { return console[name]; });
+    var stdout = process.stdout.write;
+    var capture = function() { lines.push(Array.prototype.join.call(arguments, ' ')); return true; };
+    streams.forEach(function(name) { console[name] = capture; });
+    process.stdout.write = capture;
+    try {
+        delete require.cache[HOOK];
+        withFixedRandom(function() { require(HOOK)(context); });
+    } finally {
+        process.stdout.write = stdout;
+        streams.forEach(function(name, i) { console[name] = saved[i]; });
+    }
+    return lines.join('\n');
+}
+
+function assertNoSecret(output) {
+    var key = Buffer.alloc(24, 7).toString('base64');
+    var iv = Buffer.alloc(12, 7).toString('base64');
+    assert.ok(output.indexOf('encrypt: ') > -1, 'the hook ran and logged its work');
+    assert.ok(output.indexOf(key) === -1, 'the key is not in the build log');
+    assert.ok(output.indexOf(iv) === -1, 'the iv is not in the build log');
+}
+
+test('electron: the build log has no key or iv', function(t) {
+    var project = electronProject(t);
+    assertNoSecret(logsOfHook(fakeContext(project.root, 'electron', 'www')));
+});
+
+test('android: the build log has no key or iv', function(t) {
+    var project = androidProject(t);
+    assertNoSecret(logsOfHook(fakeContext(project.root, 'android', 'app/src/main/assets/www')));
+});
+
+test('ios: the build log has no key or iv', function(t) {
+    var root = tempDir(t);
+    write(root, 'platforms/ios/www/index.html', '<html>x</html>');
+    write(root, 'platforms/ios/www/js/app.js', 'var a = 1;');
+    write(root, 'platforms/ios/App/config.xml', '');
+    write(root, 'platforms/ios/App.xcodeproj/project.pbxproj', '');
+    write(root, 'platforms/ios/App/Plugins/cordova-plugin-crypt-file/CDVCryptURLProtocol.m',
+        'kCryptKey = @"";\nkCryptIv = @"";\nkIncludeFiles[] = {};\nkExcludeFiles[] = {};\nkIncludeFileLength = 0;\nkExcludeFileLength = 0;\n');
+    var output = logsOfHook(fakeContext(root, 'ios', 'www'));
+    assertNoSecret(output);
+    var source = fs.readFileSync(path.join(root, 'platforms/ios/App/Plugins/cordova-plugin-crypt-file/CDVCryptURLProtocol.m'), 'utf8');
+    assert.ok(source.indexOf(Buffer.alloc(24, 7).toString('base64')) > -1, 'the key still reaches the build');
+});

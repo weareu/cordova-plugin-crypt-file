@@ -13,8 +13,6 @@ module.exports = function(context) {
     var key = crypto.randomBytes(24).toString('base64');
     var iv = crypto.randomBytes(12).toString('base64');
 
-    console.log('key=' + key + ', iv=' + iv)
-
     var targetFiles = loadCryptFileTargets();
 
     context.opts.platforms.filter(function(platform) {
