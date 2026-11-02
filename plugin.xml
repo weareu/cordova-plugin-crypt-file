@@ -42,6 +42,9 @@
         <framework src="androidx.webkit:webkit:${cordovaConfig.ANDROIDX_WEBKIT_VERSION}" />
     </platform>
 
+    <platform name="electron">
+    </platform>
+
     <cryptfiles>
         <include>
             <file regex="\.(htm|html|js|css)$" />

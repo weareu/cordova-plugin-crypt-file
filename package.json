@@ -9,7 +9,8 @@
   "keywords": [
     "ecosystem:cordova",
     "cordova-android",
-    "cordova-ios"
+    "cordova-ios",
+    "cordova-electron"
   ],
   "author": "tkyaji",
   "license": "Apache version 2.0"

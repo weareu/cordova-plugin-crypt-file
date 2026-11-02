@@ -27,6 +27,11 @@ module.exports = function(context) {
         var platformInfo = platformApi.getPlatformInfo();
         var wwwDir = platformInfo.locations.www;
 
+        if (platform == 'electron') {
+            require('./electron_crypt').protectElectronWww(wwwDir, targetFiles, key, iv, encryptData);
+            return;
+        }
+
         findCryptFiles(wwwDir).filter(function(file) {
             return fs.statSync(file).isFile() && isCryptFile(file.replace(wwwDir, ''));
         }).forEach(function(file) {
