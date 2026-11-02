@@ -29,6 +29,66 @@ function listRelativeFiles(wwwDir, relDir) {
     }, []);
 }
 
+function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stringLiterals(args) {
+    return (args.match(/'[^']+'|"[^"]+"/g) || []).map(function(literal) {
+        return literal.slice(1, -1);
+    });
+}
+
+function allMatches(pattern, source) {
+    var matches = [];
+    var match = pattern.exec(source);
+    while (match) {
+        matches.push(match);
+        match = pattern.exec(source);
+    }
+    return matches;
+}
+
+// Electron's file handler never sees a worker's own script or its importScripts,
+// so Chromium reads them straight from disk: they can only run in plaintext.
+function findWorkerScripts(wwwDir, relPaths) {
+    var known = new Set(relPaths);
+    var found = new Set();
+    var queue = [];
+
+    function enqueue(relPath) {
+        if (known.has(relPath) && !found.has(relPath)) {
+            found.add(relPath);
+            queue.push(relPath);
+        }
+    }
+
+    function read(relPath) {
+        return fs.readFileSync(path.join(wwwDir, relPath), 'utf8');
+    }
+
+    relPaths.filter(function(relPath) {
+        return (/\.(js|html?)$/).test(relPath);
+    }).forEach(function(relPath) {
+        allMatches(/new\s+(?:Shared)?Worker\(\s*(['"])([^'"]+)\1/g, read(relPath)).forEach(function(match) {
+            enqueue(path.posix.resolve('/', match[2]));
+        });
+    });
+
+    function enqueueImports(worker) {
+        allMatches(/importScripts\(([^)]*)\)/g, read(worker)).forEach(function(match) {
+            stringLiterals(match[1]).forEach(function(literal) {
+                enqueue(path.posix.resolve(path.posix.dirname(worker), literal));
+            });
+        });
+    }
+
+    while (queue.length) {
+        enqueueImports(queue.shift());
+    }
+    return Array.from(found);
+}
+
 function replaceOnce(content, pattern, replacement) {
     if (!pattern.test(content)) {
         throw new Error('cordova-plugin-crypt-file: ' + LOADER_FILE + ' has no ' + pattern.source + ' slot');
@@ -53,9 +113,14 @@ function writeKeysIntoLoader(wwwDir, key, iv, targets) {
 }
 
 function protectElectronWww(wwwDir, targetFiles, key, iv, encryptData) {
-    var targets = electronTargets(targetFiles);
+    var files = listRelativeFiles(wwwDir, '');
+    var workerExcludes = findWorkerScripts(wwwDir, files).map(function(relPath) {
+        console.log('plain (worker script): ' + relPath);
+        return '^' + escapeRegExp(relPath) + '$';
+    });
+    var targets = electronTargets({ include: targetFiles.include, exclude: targetFiles.exclude.concat(workerExcludes) });
     writeKeysIntoLoader(wwwDir, key, iv, targets);
-    listRelativeFiles(wwwDir, '').filter(function(relPath) {
+    files.filter(function(relPath) {
         return isCryptPath(relPath, targets);
     }).forEach(function(relPath) {
         var file = path.join(wwwDir, relPath);

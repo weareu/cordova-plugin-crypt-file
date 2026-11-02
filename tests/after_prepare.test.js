@@ -173,6 +173,31 @@ test('electron: a cordova-electron without the loader fails the build and leaves
     assert.strictEqual(fs.readFileSync(path.join(project.www, 'js/app.js'), 'utf8'), 'var app = "ünï";');
 });
 
+test('electron: worker scripts and what they import stay plain and are excluded in the loader', function(t) {
+    var project = electronProject(t);
+    write(project.www, 'js/proxy.js', 'var w = new Worker(\'./js/w/worker.js\'); new Worker(dynamicName);');
+    write(project.www, 'js/w/worker.js', 'self.importScripts(\n  \'../../lib/dep.js\',\n  "sibling.js"\n);');
+    write(project.www, 'js/w/sibling.js', 'importScripts("nested.js");');
+    write(project.www, 'js/w/nested.js', 'var nested;');
+    write(project.www, 'lib/dep.js', 'var dep;');
+    write(project.www, 'lib/other.js', 'var other;');
+    runHook(HOOK, fakeContext(project.root, 'electron', 'www'));
+
+    ['js/w/worker.js', 'js/w/sibling.js', 'js/w/nested.js', 'lib/dep.js'].forEach(function(rel) {
+        assert.ok(fs.readFileSync(path.join(project.www, rel), 'utf8').indexOf(';') > -1, rel + ' stays plain');
+    });
+    var slots = readLoaderSlots(path.join(project.www, 'cdv-electron-crypt.js'));
+    assert.strictEqual(decrypt(path.join(project.www, 'lib/other.js'), slots).toString(), 'var other;');
+    assert.strictEqual(decrypt(path.join(project.www, 'js/proxy.js'), slots).toString().indexOf('var w'), 0);
+
+    var loader = fs.readFileSync(path.join(project.www, 'cdv-electron-crypt.js'), 'utf8');
+    var excludes = JSON.parse(loader.match(/EXCLUDE_FILES = (\[.*\]);/)[1]);
+    ['/js/w/worker.js', '/lib/dep.js', '/js/w/nested.js'].forEach(function(rel) {
+        assert.ok(excludes.some(function(pattern) { return new RegExp(pattern).test(rel); }), rel + ' is excluded');
+    });
+    assert.ok(!excludes.some(function(pattern) { return new RegExp(pattern).test('/lib/other.js'); }));
+});
+
 function androidProject(t) {
     var root = tempDir(t);
     var www = 'platforms/android/app/src/main/assets/www';
